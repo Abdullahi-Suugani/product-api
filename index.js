@@ -5,9 +5,11 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-app.use(express.json());
-
-let products = [];
+let products = [
+  { id: 1, name: "Laptop", price: 800 },
+  { id: 2, name: "Keyboard", price: 90 },
+  { id: 3, name: "Mouse", price: 20 },
+];
 
 app.post("/products", (req, res) => {
   const product = {

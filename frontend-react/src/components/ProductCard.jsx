@@ -1,9 +1,9 @@
 function ProductCard({ name, price }) {
   return (
-    <div>
+    <article className="product-card">
       <h2>{name}</h2>
-      <p>Price: ${price}</p>
-    </div>
+      <p className="product-price">${price}</p>
+    </article>
   );
 }
 
