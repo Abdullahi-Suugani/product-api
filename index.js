@@ -1,68 +1,14 @@
-const express = require("express");
-const cors = require("cors");
-
-const app = express();
-app.use(cors());
-app.use(express.json());
-
-let products = [
-  { id: 1, name: "Laptop", price: 800 },
-  { id: 2, name: "Keyboard", price: 90 },
-  { id: 3, name: "Mouse", price: 20 },
-];
-
-app.post("/products", (req, res) => {
-  const product = {
-    id: products.length + 1,
-    name: req.body.name,
-    price: req.body.price,
-  };
-
-  products.push(product);
-
-  res.status(201).json(product);
-});
-
-app.get("/products", (req, res) => {
-  res.json(products);
-});
-
-app.put("/products/:id", (req, res) => {
-  const id = Number(req.params.id);
-
-  const product = products.find((product) => product.id === id);
-
-  if (!product) {
-    return res.status(404).json({
-      message: "Product not found",
-    });
-  }
-
-  product.name = req.body.name;
-  product.price = req.body.price;
-
-  res.json(product);
-});
-
-app.delete("/products/:id", (req, res) => {
-  const id = Number(req.params.id);
-
-  const productIndex = products.findIndex((product) => product.id === id);
-
-  if (productIndex === -1) {
-    return res.status(404).json({
-      message: "Product not found",
-    });
-  }
-
-  const deletedProduct = products.splice(productIndex, 1);
-
-  res.json({
-    message: "Product deleted successfully",
-    product: deletedProduct[0],
-  });
-});
-
-app.listen(5000, () => {
-  console.log("Server running on http://localhost:5000");
-});
+require("dotenv").config();
+const express = require("express"); const cors = require("cors"); const cookieParser = require("cookie-parser"); const bcrypt = require("bcryptjs"); const jwt = require("jsonwebtoken"); const fs = require("fs"); const path = require("path");
+const app = express(); const PORT = process.env.PORT || 5000; const JWT_SECRET = process.env.JWT_SECRET; if (!JWT_SECRET) throw new Error("JWT_SECRET must be set in .env");
+app.use(cors({ origin: "http://localhost:5173", credentials: true })); app.use(express.json()); app.use(cookieParser());
+const usersFile = path.join(__dirname, "data", "users.json"); fs.mkdirSync(path.dirname(usersFile), { recursive: true }); if (!fs.existsSync(usersFile)) fs.writeFileSync(usersFile, "[]");
+const readUsers = () => JSON.parse(fs.readFileSync(usersFile, "utf8")); const writeUsers = (u) => fs.writeFileSync(usersFile, JSON.stringify(u, null, 2)); const publicUser = (u) => ({ id: u.id, name: u.name, email: u.email, role: u.role }); const validEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/; const cookieOptions = { httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production", maxAge: 3600000 };
+function authenticate(req, res, next) { if (!req.cookies.token) return res.status(401).json({ message: "Authentication required" }); try { req.user = jwt.verify(req.cookies.token, JWT_SECRET); next(); } catch { res.status(401).json({ message: "Invalid or expired token" }); } }
+const requireRole = (role) => (req, res, next) => req.user.role === role ? next() : res.status(403).json({ message: "Forbidden: admin access required" });
+app.post("/auth/signup", async (req, res) => { const { name, email, password } = req.body || {}; if (!name || !email || !password) return res.status(400).json({ message: "Name, email, and password are required" }); if (!validEmail.test(email)) return res.status(400).json({ message: "Please provide a valid email" }); if (password.length < 8) return res.status(400).json({ message: "Password must be at least 8 characters" }); const users = readUsers(), normalizedEmail = email.trim().toLowerCase(); if (users.some((u) => u.email === normalizedEmail)) return res.status(409).json({ message: "Email is already registered" }); const user = { id: users.length ? Math.max(...users.map((u) => u.id)) + 1 : 1, name: name.trim(), email: normalizedEmail, password: await bcrypt.hash(password, 12), role: "user" }; users.push(user); writeUsers(users); res.status(201).json({ message: "User registered successfully", user: publicUser(user) }); });
+app.post("/auth/login", async (req, res) => { const { email, password } = req.body || {}, user = readUsers().find((u) => u.email === String(email || "").trim().toLowerCase()); if (!user || !password || !(await bcrypt.compare(password, user.password))) return res.status(401).json({ message: "Invalid credentials" }); const token = jwt.sign({ userId: user.id, email: user.email, role: user.role }, JWT_SECRET, { expiresIn: "1h" }); res.cookie("token", token, cookieOptions).json({ message: "Login successful", user: publicUser(user) }); });
+app.post("/auth/logout", (req, res) => res.clearCookie("token", { httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production" }).json({ message: "Logged out successfully" })); app.get("/profile", authenticate, (req, res) => res.json({ user: { id: req.user.userId, email: req.user.email, role: req.user.role } })); app.get("/admin", authenticate, requireRole("admin"), (req, res) => res.json({ message: "Welcome to the admin area", user: req.user }));
+app.post("/auth/dev/promote-admin", (req, res) => { if (process.env.NODE_ENV === "production") return res.status(404).json({ message: "Not found" }); if (!process.env.ADMIN_SETUP_KEY || req.body.key !== process.env.ADMIN_SETUP_KEY) return res.status(403).json({ message: "Invalid setup key" }); const users = readUsers(), user = users.find((u) => u.email === String(req.body.email || "").trim().toLowerCase()); if (!user) return res.status(404).json({ message: "User not found" }); user.role = "admin"; writeUsers(users); res.json({ message: "User promoted to admin", user: publicUser(user) }); });
+let products = [{ id: 1, name: "Laptop", price: 800 }, { id: 2, name: "Keyboard", price: 90 }, { id: 3, name: "Mouse", price: 20 }]; app.get("/products", (req, res) => res.json(products)); app.post("/products", (req, res) => { const p = { id: products.length + 1, name: req.body.name, price: req.body.price }; products.push(p); res.status(201).json(p); }); app.put("/products/:id", (req, res) => { const p = products.find((x) => x.id === Number(req.params.id)); if (!p) return res.status(404).json({ message: "Product not found" }); Object.assign(p, { name: req.body.name, price: req.body.price }); res.json(p); }); app.delete("/products/:id", (req, res) => { const i = products.findIndex((x) => x.id === Number(req.params.id)); if (i < 0) return res.status(404).json({ message: "Product not found" }); res.json({ message: "Product deleted successfully", product: products.splice(i, 1)[0] }); });
+app.use((err, req, res, next) => { console.error(err); res.status(500).json({ message: "Internal server error" }); }); app.listen(PORT, () => console.log(`Server running on http://localhost:${PORT}`));
